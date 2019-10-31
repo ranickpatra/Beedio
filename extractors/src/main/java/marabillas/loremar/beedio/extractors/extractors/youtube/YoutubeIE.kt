@@ -21,12 +21,16 @@ package marabillas.loremar.beedio.extractors.extractors.youtube
 
 import com.google.gson.JsonParser
 import com.google.gson.JsonSyntaxException
+import marabillas.loremar.beedio.extractors.ExtractorException
 import marabillas.loremar.beedio.extractors.ExtractorUtils
+import marabillas.loremar.beedio.extractors.JSInterpreter
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.net.URL
 
 class YoutubeIE : YoutubeBaseInfoExtractor() {
 
-    private val playerCache = hashMapOf<String, String>()
+    private val playerCache = hashMapOf<String, (Any) -> Any?>()
 
     override fun realExtract(url: String): HashMap<String, List<String>> {
         var urlx = ExtractorUtils.unsmuggleUrl(url)
@@ -238,7 +242,7 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             val replaceUrl: (m: MatchResult) -> String = {
                 val parsedRedirUrl = URL(URL(urlx), it.groups[1]?.value)
                 if (
-                        """^(?:www\.)?(?:youtube(?:-nocookie)?\.com|youtu\.be)$""".toRegex()
+                        """^(?:www\.)?(?:youtube(?:-nocookie)?\.com|youtu\.be)${'$'}""".toRegex()
                                 .find(parsedRedirUrl.authority) != null
                         && parsedRedirUrl.path == "/redirect"
                 ) {
@@ -401,7 +405,9 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                             /* TODO if self._downloader.params.get('verbose'):
                             *   ............................................*/
 
-                            val signature = TODO()
+                            val signature = encryptedSig?.let { decryptSignature(it, videoId, playerUrl, ageGate) }
+                            val sp = urlData["sp"]?.get(0) ?: "signature"
+                            urlx += "&$sp=$signature"
                         }
                     }
                 }
@@ -428,7 +434,10 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
     /**
      * Turn the encrypted s field into a working signature.
      */
-    fun decryptSignature(s: String, videoId: String, playerUrl: String, ageGate: Boolean = false) {
+    fun decryptSignature(s: String, videoId: String, playerUrl: String?, ageGate: Boolean = false): Any? {
+        if (playerUrl == null)
+            throw ExtractorException("Cannot decrypt signature without player_url")
+
         var plUrl = playerUrl
         if (plUrl.startsWith("//"))
             plUrl = "https:$playerUrl"
@@ -439,16 +448,29 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             }
         }
 
-        val playerId = "$plUrl $s"
-        //if (playerCache.contains(playerId))
-        TODO()
+        try {
+            val playerId = "$plUrl $s"
+            if (!playerCache.contains(playerId)) {
+                extractSignatureFunction(videoId, playerUrl, s)?.let { func ->
+                    playerCache[playerId] = func
+                }
+            }
+            val func = playerCache[playerId]
+            /*TODO if self._downloader.params.get('youtube_print_sig_code'):
+                self._print_sig_code(func, s)*/
+            return func?.invoke(s)
+        } catch (e: Exception) {
+            val sw = StringWriter()
+            e.printStackTrace(PrintWriter(sw))
+            throw ExtractorException("Signature extraction failed: $sw")
+        }
     }
 
-    fun extractSignatureFunction(videId: String, playerUrl: String, exampleSig: String) {
-        val idM = """.*?-([a-zA-Z0-9_-]+)(?:/watch_as3|/html5player(?:-new)?|(?:/[a-z]{2,3}_[A-Z]{2})?/base)?\.([a-z]+)$"""
+    fun extractSignatureFunction(videId: String, playerUrl: String, exampleSig: String): ((Any) -> Any?)? {
+        val idM = """.*?-([a-zA-Z0-9_-]+)(?:/watch_as3|/html5player(?:-new)?|(?:/[a-z]{2,3}_[A-Z]{2})?/base)?\.([a-z]+)${'$'}"""
                 .toRegex().find(playerUrl)
         if (idM == null || !playerUrl.startsWith(idM.value))
-            TODO("Cannot identify player $playerUrl needs to be handled")
+            throw ExtractorException("Cannot identify player $playerUrl")
         val playerType = idM.groups.last()?.value
         val playerId = idM.groups[1]?.value
 
@@ -465,25 +487,38 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             'Downloading %s player %s' % (player_type, player_id)
         )*/
 
-        val res: String
-        if (playerType == "js") {
-            val code = ExtractorUtils.contentOf(playerUrl)
-            res = TODO()
+        var res: ((Any) -> Any?)? = null
+        when (playerType) {
+            "js" -> {
+                val code = ExtractorUtils.contentOf(playerUrl)
+                res = code?.let { parseSigJs(it) }
+            }
+            "swf" -> TODO("No implementation to handle playerType == swf")
+            else -> assert(false) { "Invalid player type $playerType" }
         }
+
+        /*TODO test_string = ''.join(map(compat_chr, range(len(example_sig))))
+        cache_res = res(test_string)
+        cache_spec = [ord(c) for c in cache_res]
+
+        self._downloader.cache.store('youtube-sigfuncs', func_id, cache_spec)*/
+
+        return res
     }
 
-    fun parseSigJs(jscode: String): String? {
+    fun parseSigJs(jscode: String): (Any) -> Any? {
         val p1 = """\b[cs]\s*&&\s*[adf]\.set\([^,]+\s*,\s*encodeURIComponent\s*\(\s*([a-zA-Z0-9$]+)\(""".toRegex()
         val p2 = """\b[a-zA-Z0-9]+\s*&&\s*[a-zA-Z0-9]+\.set\([^,]+\s*,\s*encodeURIComponent\s*\(\s*([a-zA-Z0-9$]+)\(""".toRegex()
-        val p3 = """([a-zA-Z0-9$]+)\s*=\s*function\(\s*a\s*\)\s*{\s*a\s*=\s*a\.split\(\s*""\s*\)""".toRegex()
+        val p3 = """([a-zA-Z0-9$]+)\s*=\s*function\(\s*a\s*\)\s*\{\s*a\s*=\s*a\.split\(\s*""\s*\)""".toRegex()
         /*TODO Obsolete patterns
         *  .................*/
 
-        val sig = p1.find(jscode)?.groups?.last()?.value
+        val funcname = p1.find(jscode)?.groups?.last()?.value
                 ?: p2.find(jscode)?.groups?.last()?.value
                 ?: p3.find(jscode)?.groups?.get(1)?.value
 
-
-        return null
+        val jsi = JSInterpreter(jscode)
+        val initialFunction = funcname?.let { jsi.extractFunction(it) }
+        return { s: Any -> initialFunction?.let { f -> f(listOf(s)) } }
     }
 }
