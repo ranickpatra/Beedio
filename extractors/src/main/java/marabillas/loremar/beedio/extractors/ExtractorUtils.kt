@@ -216,4 +216,39 @@ object ExtractorUtils {
         }
         return s
     }
+
+    fun mimetype2ext(mt: String?): String? {
+        if (mt.isNullOrBlank())
+            return null
+
+        val ext = hashMapOf(
+                "audio/mp4" to "m4a",
+                /*# Per RFC 3003, audio/mpeg can be .mp1, .mp2 or .mp3. Here use .mp3 as
+                # it's the most popular one*/
+                "audio/mpeg" to "mp3"
+        )[mt]
+        if (ext != null)
+            return ext
+        val res = mt.substringAfterLast("/").split(";")[0].trim().toLowerCase()
+
+        return hashMapOf(
+                "3gpp" to "3gp",
+                "smptett+xml" to "tt",
+                "ttaf+xml" to "dfxp",
+                "ttml+xml" to "ttml",
+                "x-flv" to "flv",
+                "x-mp4-fragmented" to "mp4",
+                "x-ms-sami" to "sami",
+                "x-ms-wmv" to "wmv",
+                "mpegurl" to "m3u8",
+                "x-mpegurl" to "m3u8",
+                "vnd.apple.mpegurl" to "m3u8",
+                "dash+xml" to "mpd",
+                "f4m+xml" to "f4m",
+                "hds+xml" to "f4m",
+                "vnd.ms-sstr+xml" to "ism",
+                "quicktime" to "mov",
+                "mp2t" to "ts"
+        )[res] ?: res
+    }
 }

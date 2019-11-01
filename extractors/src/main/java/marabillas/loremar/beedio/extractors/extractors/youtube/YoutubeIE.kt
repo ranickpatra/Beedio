@@ -575,13 +575,74 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                     if (!urlx.contains("ratebypass"))
                         urlx += "&ratebypass=yes"
 
-                    val dct = hashMapOf(
+                    val dct = hashMapOf<String, Any?>(
                             "format_id" to formatId,
                             "url" to urlx,
                             "player_url" to playerUrl
                     )
                     if (_formats.contains(formatId))
-                        TODO()
+                        _formats[formatId]?.let { dct.putAll(it) }
+                    if (formatsSpec.contains(formatId))
+                        formatsSpec[formatId]?.let { dct.putAll(it) }
+
+                    /*# Some itags are not included in DASH manifest thus corresponding formats will
+                    # lack metadata (see https://github.com/ytdl-org/youtube-dl/pull/5993).
+                    # Trying to extract metadata from url_encoded_fmt_stream_map entry.*/
+                    val mobj = urlData["size"]?.get(0)?.let {
+                        """^(\d+)[xX](\d+)${'$'}""".toRegex().find(it)
+                    }
+                    var (width, height) = listOf(mobj?.groups?.get(1)?.value?.toInt(),
+                            mobj?.groups?.get(2)?.value?.toInt())
+
+                    if (width == null)
+                        width = fmt["width"]?.toInt()
+                    if (height == null)
+                        height = fmt["height"]?.toInt()
+
+                    val fileSize = (urlData["clen"]?.get(0) ?: extractFileSize(urlx))?.toInt()
+
+                    val quality = urlData["quality"]?.get(0) ?: fmt["quality"]
+                    val qualityLabel = urlData["quality_label"]?.get(0) ?: fmt["qualityLabel"]
+
+                    val tbr = urlData["bitrate"]?.get(0)?.toFloat()
+                            ?: if (formatId != "43") fmt["bitrate"]?.toFloat() else null
+                                    ?: 1000f
+                    val fps = urlData["fps"]?.get(0)?.toInt() ?: fmt["fps"]?.toInt()
+
+                    val moreFields = hashMapOf(
+                            "filesize" to fileSize,
+                            "tbr" to tbr,
+                            "width" to width,
+                            "height" to height,
+                            "fps" to fps,
+                            "format_note" to (qualityLabel ?: quality)
+                    )
+                    for ((key, value) in moreFields) {
+                        if (value != null)
+                            dct[key] = value
+                    }
+                    val type = urlData["type"]?.get(0) ?: fmt["mimeType"]
+                    if (type != null) {
+                        val typeSplit = type.split(";")
+                        val kindExt = typeSplit[0].split("/")
+                        if (kindExt.count() == 2) {
+                            val (kind, _) = kindExt
+                            dct["ext"] = ExtractorUtils.mimetype2ext(typeSplit[0])
+                            if (listOf("audio", "video").contains(kind)) {
+                                var codecs: String? = null
+                                val mobjs = """([a-zA-Z_-]+)=(["']?)(.+?)(["']?)(?:;|${'$'})"""
+                                        .toRegex().findAll(type)
+                                for (mobj in mobjs) {
+                                    if (mobj.groups[1]?.value == "codecs") {
+                                        codecs = mobj.groups[3]?.value
+                                        break
+                                    }
+                                }
+                                if (!codecs.isNullOrBlank())
+                                    TODO() // dct.putAll()
+                            }
+                        }
+                    }
                 }
 
             } else {
