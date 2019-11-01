@@ -31,6 +31,168 @@ import java.net.URL
 class YoutubeIE : YoutubeBaseInfoExtractor() {
 
     private val playerCache = hashMapOf<String, (Any) -> Any?>()
+    private val _formats = hashMapOf(
+            "5" to hashMapOf("ext" to "flv", "width" to 400, "height" to 240, "acodec" to "mp3",
+                    "abf" to 64, "vcodec" to "h263"),
+            "6" to hashMapOf("ext" to "flv", "width" to 450, "height" to 270, "acodec" to "mp3",
+                    "abr" to 64, "vcodec" to "h263"),
+            "13" to hashMapOf<String, Any>("ext" to "3gp", "acodec" to "aac", "vcodec" to "mp4v"),
+            "17" to hashMapOf("ext" to "3gp", "width" to 176, "height" to 144, "acodec" to "aac",
+                    "abr" to 24, "vcodec" to "mp4v"),
+            "18" to hashMapOf("ext" to "mp4", "width" to 640, "height" to 360, "acodec" to "aac",
+                    "abr" to 96, "vcodec" to "h264"),
+            "22" to hashMapOf("ext" to "mp4", "width" to 1280, "height" to 720, "acodec" to "aac",
+                    "abr" to 192, "vcodec" to "h264"),
+            "34" to hashMapOf("ext" to "flv", "width" to 640, "height" to 360, "acodec" to "aac",
+                    "abr" to 128, "vcodec" to "h264"),
+            "35" to hashMapOf("ext" to "flv", "width" to 854, "height" to 480, "acodec" to "aac",
+                    "abr" to 128, "vcodec" to "h264"),
+            // itag 36 videos are either 320x180 (BaW_jenozKc) or 320x240 (__2ABJjxzNo), abr varies as well
+            "36" to hashMapOf("ext" to "3gp", "width" to 320, "acodec" to "aac", "vcodec" to "mp4v"),
+            "37" to hashMapOf("ext" to "mp4", "width" to 1920, "height" to 1080, "acodec" to "aac",
+                    "abr" to 192, "vcodec" to "h264"),
+            "38" to hashMapOf("ext" to "mp4", "width" to 4096, "height" to 3072, "acodec" to "aac",
+                    "abr" to 192, "vcodec" to "h264"),
+            "43" to hashMapOf("ext" to "webm", "width" to 640, "height" to 360, "acodec" to "vorbis",
+                    "abr" to 128, "vcodec" to "vp8"),
+            "44" to hashMapOf("ext" to "webm", "width" to 854, "height" to 480, "acodec" to "vorbis",
+                    "abr" to 128, "vcodec" to "vp8"),
+            "45" to hashMapOf("ext" to "webm", "width" to 1280, "height" to 720, "acodec" to "vorbis",
+                    "abr" to 192, "vcodec" to "vp8"),
+            "46" to hashMapOf("ext" to "webm", "width" to 1920, "height" to 1080, "acodec" to "vorbis",
+                    "abr" to 192, "vcodec" to "vp8"),
+            "59" to hashMapOf("ext" to "mp4", "width" to 854, "height" to 480, "acodec" to "aac",
+                    "abr" to 128, "vcodec" to "h264"),
+            "78" to hashMapOf("ext" to "mp4", "width" to 854, "height" to 480, "acodec" to "aac",
+                    "abr" to 128, "vcodec" to "h265"),
+
+            // 3D videos
+            "82" to hashMapOf("ext" to "mp4", "height" to 360, "format_note" to "3D", "acodec" to "aac",
+                    "abr" to 128, "vcodec" to "h264", "preference" to -20),
+            "83" to hashMapOf("ext" to "mp4", "height" to 480, "format_note" to "3D", "acodec" to "aac",
+                    "abr" to 128, "vcodec" to "h264", "preference" to -20),
+            "84" to hashMapOf("ext" to "mp4", "height" to 720, "format_note" to "3D", "acodec" to "aac",
+                    "abr" to 192, "vcodec" to "h264", "preference" to -20),
+            "85" to hashMapOf("ext" to "mp4", "height" to 1080, "format_note" to "3D", "acodec" to "aac",
+                    "abr" to 192, "vcodec" to "h264", "preference" to -20),
+            "100" to hashMapOf("ext" to "webm", "height" to 360, "format_note" to "3D", "acodec" to "vorbis",
+                    "abr" to 128, "vcodec" to "vp8", "preference" to -20),
+            "101" to hashMapOf("ext" to "webm", "height" to 480, "format_note" to "3D", "acodec" to "vorbis",
+                    "abr" to 192, "vcodec" to "vp8", "preference" to -20),
+            "102" to hashMapOf("ext" to "webm", "height" to 720, "format_note" to "3D", "acodec" to "vorbis",
+                    "abr" to 192, "vcodec" to "vp8", "preference" to -20),
+
+            // Apple HTTP Live Streaming
+            "91" to hashMapOf("ext" to "mp4", "height" to 144, "format_note" to "HLS", "acodec" to "aac",
+                    "abr" to 48, "vcodec" to "h264", "preference" to -10),
+            "92" to hashMapOf("ext" to "mp4", "height" to 240, "format_note" to "HLS", "acodec" to "aac",
+                    "abr" to 48, "vcodec" to "h264", "preference" to -10),
+            "93" to hashMapOf("ext" to "mp4", "height" to 360, "format_note" to "HLS", "acodec" to "aac",
+                    "abr" to 128, "vcodec" to "h264", "preference" to -10),
+            "94" to hashMapOf("ext" to "mp4", "height" to 480, "format_note" to "HLS", "acodec" to "aac",
+                    "abr" to 128, "vcodec" to "h264", "preference" to -10),
+            "95" to hashMapOf("ext" to "mp4", "height" to 720, "format_note" to "HLS", "acodec" to "aac",
+                    "abr" to 256, "vcodec" to "h264", "preference" to -10),
+            "96" to hashMapOf("ext" to "mp4", "height" to 1080, "format_note" to "HLS", "acodec" to "aac",
+                    "abr" to 256, "vcodec" to "h264", "preference" to -10),
+            "132" to hashMapOf("ext" to "mp4", "height" to 240, "format_note" to "HLS", "acodec" to "aac",
+                    "abr" to 48, "vcodec" to "h264", "preference" to -10),
+            "151" to hashMapOf("ext" to "mp4", "height" to 72, "format_note" to "HLS", "acodec" to "aac",
+                    "abr" to 24, "vcodec" to "h264", "preference" to -10),
+
+            // DASH mp4 video
+            "133" to hashMapOf("ext" to "mp4", "height" to 240, "format_note" to "DASH video", "vcodec" to "h264"),
+            "134" to hashMapOf("ext" to "mp4", "height" to 360, "format_note" to "DASH video", "vcodec" to "h264"),
+            "135" to hashMapOf("ext" to "mp4", "height" to 480, "format_note" to "DASH video", "vcodec" to "h264"),
+            "136" to hashMapOf("ext" to "mp4", "height" to 720, "format_note" to "DASH video", "vcodec" to "h264"),
+            "137" to hashMapOf("ext" to "mp4", "height" to 1080, "format_note" to "DASH video", "vcodec" to "h264"),
+            "138" to hashMapOf<String, Any>("ext" to "mp4", "format_note" to "DASH video", "vcodec" to "h264"), // Height can vary (https://github.com/ytdl-org/youtube-dl/issues/4559)
+            "160" to hashMapOf("ext" to "mp4", "height" to 144, "format_note" to "DASH video", "vcodec" to "h264"),
+            "212" to hashMapOf("ext" to "mp4", "height" to 480, "format_note" to "DASH video", "vcodec" to "h264"),
+            "264" to hashMapOf("ext" to "mp4", "height" to 1440, "format_note" to "DASH video", "vcodec" to "h264"),
+            "298" to hashMapOf("ext" to "mp4", "height" to 720, "format_note" to "DASH video", "vcodec" to "h264"),
+            "299" to hashMapOf("ext" to "mp4", "height" to 1080, "format_note" to "DASH video", "vcodec" to "h264"),
+            "266" to hashMapOf("ext" to "mp4", "height" to 2160, "format_note" to "DASH video", "vcodec" to "h264"),
+
+            // Dash mp4 audio
+            "139" to hashMapOf("ext" to "m4a", "format_note" to "DASH audio", "acodec" to "aac", "abr" to 48,
+                    "container" to "m4a_dash"),
+            "140" to hashMapOf("ext" to "m4a", "format_note" to "DASH audio", "acodec" to "aac", "abr" to 128,
+                    "container" to "m4a_dash"),
+            "141" to hashMapOf("ext" to "m4a", "format_note" to "DASH audio", "acodec" to "aac", "abf" to 256,
+                    "container" to "m4a_dash"),
+            "256" to hashMapOf<String, Any>("ext" to "m4a", "format_note" to "DASH audio", "acodec" to "aac",
+                    "container" to "m4a_dash"),
+            "258" to hashMapOf<String, Any>("ext" to "m4a", "format_note" to "DASH audio", "acodec" to "aac",
+                    "container" to "m4a_dash"),
+            "325" to hashMapOf<String, Any>("ext" to "m4a", "format_note" to "DASH audio", "acodec" to "dtse",
+                    "container" to "m4a_dash"),
+            "328" to hashMapOf<String, Any>("ext" to "m4a", "format_note" to "DASH audio", "acodec" to "ec-3",
+                    "container" to "m4a_dash"),
+
+            // Dash webm
+            "167" to hashMapOf("ext" to "webm", "height" to 360, "width" to 640, "format_note" to "DASH video",
+                    "container" to "webm", "vcodec" to "vp8"),
+            "168" to hashMapOf("ext" to "webm", "height" to 480, "width" to 854, "format_note" to "DASH video",
+                    "container" to "webm", "vcodec" to "vp8"),
+            "169" to hashMapOf("ext" to "webm", "height" to 720, "width" to 1280, "format_note" to "DASH video",
+                    "container" to "webm", "vcodec" to "vp8"),
+            "170" to hashMapOf("ext" to "webm", "height" to 1080, "width" to 1920, "format_note" to "DASH video",
+                    "container" to "webm", "vcodec" to "vp8"),
+            "218" to hashMapOf("ext" to "webm", "height" to 480, "width" to 854, "format_note" to "DASH video",
+                    "container" to "webm", "vcodec" to "vp8"),
+            "219" to hashMapOf("ext" to "webm", "height" to 480, "width" to 854, "format_note" to "DASH video",
+                    "container" to "webm", "vcodec" to "vp8"),
+            "278" to hashMapOf("ext" to "webm", "height" to 144, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            "242" to hashMapOf("ext" to "webm", "height" to 240, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            "243" to hashMapOf("ext" to "webm", "height" to 360, "format_note" to "DASH video"
+                    , "vcodec" to "vp9"),
+            "244" to hashMapOf("ext" to "webm", "height" to 480, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            "245" to hashMapOf("ext" to "webm", "height" to 480, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            "246" to hashMapOf("ext" to "webm", "height" to 480, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            "247" to hashMapOf("ext" to "webm", "height" to 720, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            "248" to hashMapOf("ext" to "webm", "height" to 1080, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            "271" to hashMapOf("ext" to "webm", "height" to 1440, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            // itag 272 videos are either 3840x2160 (e.g. RtoitU2A-3E) or 7680x4320 (sLprVF6d7Ug)
+            "272" to hashMapOf("ext" to "webm", "height" to 2160, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            "302" to hashMapOf("ext" to "webm", "height" to 720, "format_note" to "DASH video",
+                    "vcodec" to "vp9", "fps" to 60),
+            "303" to hashMapOf("ext" to "webm", "height" to 1080, "format_note" to "DASH video",
+                    "vcodec" to "vp9", "fps" to 60),
+            "308" to hashMapOf("ext" to "webm", "height" to 1440, "format_note" to "DASH video",
+                    "vcodec" to "vp9", "fps" to 60),
+            "313" to hashMapOf("ext" to "webm", "height" to 2160, "format_note" to "DASH video",
+                    "vcodec" to "vp9"),
+            "315" to hashMapOf("ext" to "webm", "height" to 2160, "format_note" to "DASH video",
+                    "vcodec" to "vp9", "fps" to 60),
+
+            // Dash webm audio
+            "171" to hashMapOf("ext" to "webm", "acodec" to "vorbis", "format_note" to "DASH audio", "abr" to 128),
+            "172" to hashMapOf("ext" to "webm", "acodec" to "vorbis", "format_note" to "DASH audio", "abr" to 256),
+
+            // Dash web audio with opus inside
+            "249" to hashMapOf("ext" to "webm", "format_note" to "DASH audio", "acodec" to "opus", "abr" to 50),
+            "250" to hashMapOf("ext" to "webm", "format_note" to "DASH audio", "acodec" to "opus", "abr" to 70),
+            "251" to hashMapOf("ext" to "webm", "format_note" to "DASH audio", "acodec" to "opus", "abr" to 160),
+
+            // RTMP (unnamed)
+            "rtmp" to hashMapOf<String, Any>("protocol" to "rtmp"),
+
+            // av01 video only formats sometimes served with "unknown" codecs
+            "394" to hashMapOf<String, Any>("acodec" to "none", "vcodec" to "av01.0.05M.08"),
+            "395" to hashMapOf<String, Any>("acodec" to "none", "vcodec" to "av01.0.05M.08"),
+            "396" to hashMapOf<String, Any>("acodec" to "none", "vcodec" to "av01.0.05M.08"),
+            "397" to hashMapOf<String, Any>("acodec" to "none", "vcodec" to "av01.0.05M.08")
+    )
 
     override fun realExtract(url: String): HashMap<String, List<String>> {
         var urlx = ExtractorUtils.unsmuggleUrl(url)
@@ -410,6 +572,16 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                             urlx += "&$sp=$signature"
                         }
                     }
+                    if (!urlx.contains("ratebypass"))
+                        urlx += "&ratebypass=yes"
+
+                    val dct = hashMapOf(
+                            "format_id" to formatId,
+                            "url" to urlx,
+                            "player_url" to playerUrl
+                    )
+                    if (_formats.contains(formatId))
+                        TODO()
                 }
 
             } else {
