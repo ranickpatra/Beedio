@@ -19,9 +19,11 @@
 
 package marabillas.loremar.beedio.extractors
 
+import android.util.Log
 import com.google.gson.JsonElement
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import java.io.IOException
 import java.math.BigInteger
 import java.net.URLDecoder
@@ -41,6 +43,16 @@ object ExtractorUtils {
             val client = OkHttpClient()
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().body.toString()
+        } catch (e: IOException) {
+            null
+        }
+    }
+
+    fun extractResponseFrom(url: String): Response? {
+        return try {
+            val client = OkHttpClient()
+            val request = Request.Builder().url(url).build()
+            client.newCall(request).execute()
         } catch (e: IOException) {
             null
         }
@@ -250,5 +262,60 @@ object ExtractorUtils {
                 "quicktime" to "mov",
                 "mp2t" to "ts"
         )[res] ?: res
+    }
+
+    fun parseCodecs(codecsStr: String?): HashMap<String, Any?> {
+        // http://tools.ietf.org/html/rfc6381
+        if (codecsStr.isNullOrBlank())
+            return hashMapOf()
+        val splitedCodecs = mutableListOf<String?>()
+                .apply {
+                    addAll(codecsStr.trim().replace(",", "").split(","))
+                }
+                .filter { !it.isNullOrBlank() }
+                .map { it as String }
+        var (vcodec, acodec) = listOf<String?>(null, null)
+        for (fullCodec in splitedCodecs) {
+            val codec = fullCodec.split(".")[0]
+            if (listOf("avc1", "avc2", "avc3", "avc4", "vp9", "vp8", "hev1", "hev2", "h263", "h264",
+                            "mp4v", "hvc1", "av01", "theora").contains(codec)) {
+                if (vcodec.isNullOrBlank())
+                    vcodec = fullCodec
+            } else if (listOf("mp4a", "opus", "vorbis", "mp3", "aac", "ac-3", "ec-3", "eac3", "dtsc",
+                            "dtse", "dtsh", "dtsl").contains(codec)) {
+                if (acodec.isNullOrBlank())
+                    acodec = fullCodec
+            } else {
+                // TODO write_string('WARNING: Unknown codec %s\n' % full_codec, sys.stderr)
+                Log.w(javaClass.name, "WARNING: Unknown codec $fullCodec")
+            }
+        }
+        if (vcodec.isNullOrBlank() && acodec.isNullOrBlank()) {
+            if (splitedCodecs.count() == 2)
+                return hashMapOf(
+                        "vcodec" to splitedCodecs[0],
+                        "acodec" to splitedCodecs[1]
+                )
+        } else {
+            return hashMapOf(
+                    "vcodec" to vcodec,
+                    "acodec" to acodec
+            )
+        }
+        return hashMapOf()
+    }
+
+    fun parseM3u8Attributes(attrib: String): HashMap<String, Any?> {
+        val info = hashMapOf<String, Any?>()
+        val mObjs = """([A-Z0-9-]+)=("[^"]+"|[^",]+)(?:,|${'$'})""".toRegex().findAll(attrib)
+        for (mObj in mObjs) {
+            val key = mObj.groups[1]?.value
+            var value = mObj.groups[2]?.value
+            if (value != null && value.startsWith('"'))
+                value = value.substring(1, value.lastIndex)
+            if (key != null)
+                info[key] = value
+        }
+        return info
     }
 }

@@ -30,16 +30,18 @@ class PlayerResponseImpl(json: String) : PlayerResponse {
         get() = _videoDetails
 
     private val jsonObject = JsonParser.parseString(json).asJsonObject
-    private var _streamingData = StreamingData(listOf(), listOf(), listOf())
+    private var _streamingData = StreamingData(listOf(), listOf(), listOf(), listOf())
     private val _videoDetails = hashMapOf<String, String>()
 
     init {
         val streamData = jsonObject.getAsJsonObject("streamingData")
         val dashMUrl = streamData.get("dashManifestUrl")
+        val hlsMUrl = streamData.get("hlsManifestUrl")
         val formats = streamData.get("formats").asJsonArray
         val adaptiveFormats = streamData.get("adaptiveFormats").asJsonArray
 
         val dashMUrlList = ExtractorUtils.jsonElementToStringList(dashMUrl)
+        val hlsMUrlList = ExtractorUtils.jsonElementToStringList(hlsMUrl)
 
         val formatsList = formats.let { formatsArray ->
             mutableListOf<Map<String, String>>().also { list ->
@@ -67,7 +69,7 @@ class PlayerResponseImpl(json: String) : PlayerResponse {
             }
         }
 
-        _streamingData = StreamingData(dashMUrlList, formatsList.toList(), adaptiveFormatsList)
+        _streamingData = StreamingData(dashMUrlList, hlsMUrlList, formatsList.toList(), adaptiveFormatsList)
 
         val detailsData = jsonObject.getAsJsonObject("videoDetails")
         detailsData.keySet().forEach { key ->

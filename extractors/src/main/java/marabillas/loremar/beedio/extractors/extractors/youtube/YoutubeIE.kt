@@ -456,19 +456,19 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             formats.toMutableList().apply { addAll(adaptiveFormats) }
         } ?: listOf<Map<String, String>>()
 
-        val formats: HashMap<String, String>
+        var formats: MutableList<HashMap<String, Any?>> = mutableListOf()
         videoInfo?.let { vInfo ->
             val conn = vInfo["conn"]?.get(0)
 
             if (conn != null && conn.startsWith("rtmp")) {
                 // TODO Report rtmp download
                 playerUrl?.let {
-                    formats = hashMapOf(
-                            "format_id" to "_rtmp",
-                            "protocol" to "rtmp",
-                            "url" to conn,
-                            "player_url" to it
-                    )
+                    formats = mutableListOf(hashMapOf(
+                            "format_id" to "_rtmp" as Any?,
+                            "protocol" to "rtmp" as Any?,
+                            "url" to conn as Any?,
+                            "player_url" to it as Any?
+                    ))
                 }
             } else if (isLive != true && (
                             !streamingFormats.isNullOrEmpty()
@@ -639,13 +639,25 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                                     }
                                 }
                                 if (!codecs.isNullOrBlank())
-                                    TODO() // dct.putAll()
+                                    dct.putAll(ExtractorUtils.parseCodecs(codecs))
                             }
                         }
                     }
+                    if (dct["acodec"] == null || dct["vcodec"] == null || dct["acodec"] == "none" || dct["vcodec"] == "none") {
+                        dct["downloader options"] = hashMapOf(
+                                // Youtube throttles chunks >~10M
+                                "http_chunk_size" to 10485760
+                        )
+                    }
+                    formats.add(dct)
                 }
-
             } else {
+                val manifestUrl = playerResponse?.streamingData?.hlsManifestUrl?.get(0)
+                        ?: vInfo["hlsvp"]?.get(0)
+                if (!manifestUrl.isNullOrBlank()) {
+                    formats = mutableListOf()
+                    val m3u8Formats = extractM3u8Formats(manifestUrl, videoId, "mp4")
+                }
                 TODO()
             }
         }
