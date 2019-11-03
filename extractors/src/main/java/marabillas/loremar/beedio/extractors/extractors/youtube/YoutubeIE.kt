@@ -19,6 +19,7 @@
 
 package marabillas.loremar.beedio.extractors.extractors.youtube
 
+import android.util.Log
 import com.google.gson.JsonParser
 import com.google.gson.JsonSyntaxException
 import marabillas.loremar.beedio.extractors.ExtractorException
@@ -27,6 +28,7 @@ import marabillas.loremar.beedio.extractors.JSInterpreter
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.net.URL
+import java.net.URLDecoder
 
 class YoutubeIE : YoutubeBaseInfoExtractor() {
 
@@ -692,6 +694,131 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                     if (!errorMessage.isNullOrBlank())
                         throw ExtractorException(errorMessage)
                     throw ExtractorException("no conn, hlsvp, hlsManifestUrl or url_encoded_fmt_stream_map information found in video info")
+                }
+            }
+
+            // uploader
+            var videoUploader = vInfo["author"]?.get(0) ?: videoDetails?.get("author")
+            if (!videoUploader.isNullOrBlank())
+                videoUploader = URLDecoder.decode(videoUploader, "UTF-8")
+            else
+                Log.w(javaClass.name, "unable to extract uploader name")
+
+            // uploader id
+            var videoUploaderId: String? = null
+            var videoUploaderUrl: String? = null
+            var mobj = """<link itemprop="url" href="(https?://www\.youtube\.com/(?:user|channel)/([^"]+))">"""
+                    .toRegex().find(videoWebPage.toString())
+            if (mobj != null) {
+                videoUploaderId = mobj.groups[2]?.value
+                videoUploaderUrl = mobj.groups[1]?.value
+            } else
+                Log.w(javaClass.name, "unable to extract uploader nickname")
+
+            val channelId = videoDetails?.get("channelId")
+                    ?: htmlSearchMeta("channelId", videoWebPage.toString(), "channel id")
+                    ?: """data-channel-external-id=(["'])((?:(?!\1).)+)\1""".toRegex()
+                            .find(videoWebPage.toString())?.groups?.get(2)?.value
+            val channelUrl = "http://www.youtube.com/channel/$channelId"
+
+            /*# thumbnail image
+            # We try first to get a high quality image:*/
+            val mThumb = """<span itemprop="thumbnail".*?href="(.*?)">""".toRegex(RegexOption.DOT_MATCHES_ALL)
+                    .find(videoWebPage.toString())
+            val videoThumbnail = if (mThumb != null)
+                mThumb.groups[1]?.value
+            else if (!vInfo.contains("thumbnail_url")) {
+                Log.w(javaClass.name, "unable to extract video thumbnail")
+                null
+            } else {
+                // don't panic if we can't find it
+                vInfo["thumbnail_url"]?.get(0)?.let {
+                    URLDecoder.decode(it, "UTF-8")
+                }
+            }
+
+            // upload date
+            var uploadDate = htmlSearchMeta("datePublished", videoWebPage.toString(), "updload date")
+            if (uploadDate.isNullOrBlank())
+                uploadDate = """(?s)id="eow-date.*?>(.*?)</span>""".toRegex().find(videoWebPage.toString())?.value
+                        ?: """(?:id="watch-uploader-info".*?>.*?|["']simpleText["']\s*:\s*["'])(?:Published|Uploaded|Streamed live|Started) on (.+?)[<"\']"""
+                                .toRegex().find(videoWebPage.toString())?.value
+            uploadDate = ExtractorUtils.unifiedStrDate(uploadDate)
+
+            val videoLicense = htmlSearchRegex("""<h4[^>]+class="title"[^>]*>\s*License\s*</h4>\s*<ul[^>]*>\s*<li>(.+?)</li"""
+                    .toRegex(), videoWebPage.toString())
+
+            val mMusic = """(?x)
+                <h4[^>]+class="title"[^>]*>\s*Music\s*</h4>\s*
+                <ul[^>]*>\s*
+                <li>(.+?)
+                by (.+?)
+                (?:
+                    \(.+?\)|
+                    <a[^>]*
+                        (?:
+                            \bhref=["']/red[^>]*>|             # drop possible
+                            >\s*Listen ad-free with YouTube Red # YouTube Red ad
+                        )
+                    .*?
+                )?</li""".toRegex().find(videoWebPage.toString())
+            var videoAltTitle: String? = null
+            var videoCreator: String? = null
+            if (mMusic != null) {
+                mMusic.groups[1]?.value?.let {
+                    videoAltTitle = ExtractorUtils.removeQuotes(ExtractorUtils.unescapeHtml(it))
+                }
+                mMusic.groups[2]?.value?.let {
+                    videoCreator = ExtractorUtils.cleanHtml(it)
+                }
+            }
+
+            val extractMeta: (String) -> String? = { field ->
+                htmlSearchRegex(
+                        """<h4[^>]+class="title"[^>]*>\s*$field\s*</h4>\s*<ul[^>]*>\s*<li>(.+?)</li>\s*"""
+                                .toRegex(), videoWebPage.toString())
+            }
+
+            var track = extractMeta("Song")
+            var artist = extractMeta("Artist")
+            var album = extractMeta("Album")
+
+            // Youtube Music Auto-generated description
+            var releaseDate: String? = null
+            var releaseYear: Int? = null
+            if (!videoDescription.isNullOrBlank()) {
+                mobj = """(?s)Provided to YouTube by [^\n]+\n+([^·]+)·([^\n]+)|\n+([^\n]+)
+                    |(?:.+?℗\s*(>\d{4})(?!\d))?(?:.+?Released on\s|\\*:\s*(\d{4}-\d{2}-\d{2}))?
+                    |(.+?\nArtist\s*:\s*(|[^\n]+))?""".trimMargin()
+                        .toRegex().find(videoDescription)
+                if (mobj != null) {
+                    if (track.isNullOrBlank())
+                        track = mobj.groups[1]?.value?.trim()
+                    if (artist.isNullOrBlank()) {
+                        val artistPattern = """.+?\nArtist\s*:\s*([^\n]+)""".toRegex()
+                        artist = artistPattern.find(mobj.value)?.groups?.get(1)?.value
+                        if (artist.isNullOrBlank()) {
+                            mobj.groups[2]?.value?.let {
+                                it.split(".").toMutableList().apply {
+                                    forEachIndexed { i, s ->
+                                        set(i, s.trim())
+                                    }
+                                    artist = joinToString(", ")
+                                }
+                            }
+                        }
+                    }
+                    if (album.isNullOrBlank())
+                        album = mobj.groups[3]?.value?.trim()
+                    val releaseYearPattern = """.+?℗\s*(>\d{4})(?!\d)""".toRegex()
+                    releaseYear = releaseYearPattern.find(mobj.value)?.groups?.get(1)?.value?.toInt()
+                    val releaseDatePattern = """.+?Released on\s|\\*:\s*(\d{4}-\d{2}-\d{2})""".toRegex()
+                    releaseDate = releaseDatePattern.find(mobj.value)?.groups?.get(1)?.value
+                    if (!releaseDate.isNullOrBlank()) {
+                        releaseDate = releaseDate.replace("-", "")
+                        if (releaseYear == null)
+                            releaseYear = releaseDate.substring(0, 4).toInt()
+                    }
                 }
             }
         }

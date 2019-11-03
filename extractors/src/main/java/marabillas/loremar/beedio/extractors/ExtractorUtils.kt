@@ -28,6 +28,8 @@ import java.io.IOException
 import java.math.BigInteger
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.*
 
 object ExtractorUtils {
 
@@ -318,4 +320,94 @@ object ExtractorUtils {
         }
         return info
     }
+
+    /**
+     * Return a string with the date in the format YYYYMMDD
+     */
+    fun unifiedStrDate(dateStr: String?, dayFirst: Boolean = true): String? {
+        if (dateStr.isNullOrBlank())
+            return null
+        var uploadDate: String? = null
+        // Replace commas
+        var mDateStr = dateStr.replace(",", " ")
+        // Remove AM/PM + timezone
+        mDateStr = mDateStr.replace("""(?i)\s*(?:AM|PM)(?:\s+[A-Z]+)?""".toRegex(), "")
+        extractTimezone(mDateStr)?.let {
+            mDateStr = it
+        }
+
+        for (expression in dateFormats(dayFirst)) {
+            try {
+                val srcFormat = SimpleDateFormat(expression, Locale.US)
+                val targetFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
+                uploadDate = targetFormat.format(srcFormat.parse(mDateStr))
+            } catch (e: NullPointerException) {
+            }
+        }
+
+        // TODO if uploadDate is null, parse mDateStr to timetuple
+
+        return uploadDate
+    }
+
+    fun extractTimezone(dateStr: String): String? {
+        val m = """^.{8,}?(Z${'$'}| ?([+\-])([0-9]{2}):?([0-9]{2})${'$'})"""
+                .toRegex().find(dateStr)
+        return if (m != null) {
+            val len = m.groups[1]?.value?.length
+            if (len != null)
+                dateStr.substring(0, dateStr.length - len)
+            else
+                null
+        } else
+            null
+        // TODO return timezone object as well
+    }
+
+    fun dateFormats(dayFirst: Boolean = true) = if (dayFirst) DATE_FORMATS_DAY_FIRST else DATE_FORMATS_MONTH_FIRST
+}
+
+val DATE_FORMATS = listOf(
+        "dd MMMM yyyy",
+        "dd MMM yyyy",
+        "MMMM dd yyyy",
+        "MMMM ddst yyyy",
+        "MMMM ddnd yyyy",
+        "MMMM ddth yyyy",
+        "MMM dd yyyy",
+        "MMM ddst yyyy",
+        "MMM ddnd yyyy",
+        "MMM ddth yyyy",
+        "MMM ddst yyyy hh:mm",
+        "MMM ddnd yyyy hh:mm",
+        "MMM ddth yyyy hh:mm",
+        "yyyy MM dd",
+        "yyyy-MM-dd",
+        "yyyy/MM/dd",
+        "yyyy/MM/dd HH:mm",
+        "yyyy/MM/dd HH:mm:ss",
+        "yyyy-MM-dd HH:mm",
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd HH:mm:ss.SSSSSS",
+        "dd.MM.yyyy HH:mm",
+        "dd.MM.yyyy HH.mm",
+        "yyyy-MM-ddTH:mm:ssZ",
+        "yyyy-MM-ddTH:mm:ss.SSSSSSZ",
+        "yyyy-MM-ddTH:mm:ss.SSSSSS0Z",
+        "yyyy-MM-ddTH:mm:ss",
+        "yyyy-MM-ddTH:mm:ss.SSSSSS",
+        "yyyy-MM-ddTH:mm",
+        "MMM dd yyyy at HH:mm",
+        "MMM dd yyyy at HH:mm:ss",
+        "MMMM dd yyyy at HH:mm",
+        "MMMM dd yyyy at HH:mm:ss")
+
+val DATE_FORMATS_DAY_FIRST = mutableListOf<String>().apply {
+    addAll(DATE_FORMATS)
+    addAll(listOf("dd-MM-yyyy", "dd.MM.yyyy", "dd.MM.yy", "dd/MM/yyyy", "dd/MM/yy", "dd/MM/yyyy HH:mm:ss"))
+}.toList()
+
+val DATE_FORMATS_MONTH_FIRST = mutableListOf<String>().apply {
+    addAll(DATE_FORMATS)
+    addAll(listOf("MM-dd-yyyy", "MM.dd.yyyy", "MM/dd/yyyy", "MM/dd/yy", "MM/dd/yyyy HH:mm:ss"))
 }
