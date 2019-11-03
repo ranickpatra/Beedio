@@ -657,8 +657,42 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                 if (!manifestUrl.isNullOrBlank()) {
                     formats = mutableListOf()
                     val m3u8Formats = extractM3u8Formats(manifestUrl, videoId, "mp4")
+                    for (aFormat in m3u8Formats) {
+                        val aFormatUrl = aFormat["url"]
+                        if (aFormatUrl is String) {
+                            val itag = """/itag/(\d+)/""".toRegex().find(aFormatUrl)?.value
+                            if (_formats.contains(itag)) {
+                                _formats[itag]?.also { dct ->
+                                    for ((k, v) in aFormat)
+                                        dct[k] = v as Any
+                                    aFormat.clear()
+                                    for ((k, v) in dct)
+                                        aFormat[k] = v
+                                }
+                            }
+                            aFormat["player_url"] = playerUrl
+                            // Accept-Encoding header causes failures in live streams on Youtube and Youtube Gaming
+                            val httpHeaders = aFormat.getOrPut("http_headers", { hashMapOf<String, Any?>() })
+                            @Suppress("UNCHECKED_CAST")
+                            if (httpHeaders is HashMap<*, *>)
+                                (httpHeaders as HashMap<String, Any?>)["Youtubedl-no-compression"] = "True"
+                            formats.add(aFormat)
+                        }
+                    }
+                } else {
+                    var errorMessage = extractUnavailableMessage()
+                    if (errorMessage.isNullOrBlank()) {
+                        val reason = playerResponse?.playabilityStatus?.get("reason")
+                        errorMessage = reason?.let { ExtractorUtils.cleanHtml(it) }
+                    }
+                    if (errorMessage.isNullOrBlank()) {
+                        val reason = vInfo["reason"]?.get(0)
+                        errorMessage = reason?.let { ExtractorUtils.cleanHtml(it) }
+                    }
+                    if (!errorMessage.isNullOrBlank())
+                        throw ExtractorException(errorMessage)
+                    throw ExtractorException("no conn, hlsvp, hlsManifestUrl or url_encoded_fmt_stream_map information found in video info")
                 }
-                TODO()
             }
         }
 

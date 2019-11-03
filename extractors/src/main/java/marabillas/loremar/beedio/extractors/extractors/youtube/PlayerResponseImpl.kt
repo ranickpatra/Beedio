@@ -28,10 +28,13 @@ class PlayerResponseImpl(json: String) : PlayerResponse {
         get() = _streamingData
     override val videoDetails: HashMap<String, String>
         get() = _videoDetails
+    override val playabilityStatus: HashMap<String, String>
+        get() = _playabilityStatus
 
     private val jsonObject = JsonParser.parseString(json).asJsonObject
     private var _streamingData = StreamingData(listOf(), listOf(), listOf(), listOf())
     private val _videoDetails = hashMapOf<String, String>()
+    private val _playabilityStatus = hashMapOf<String, String>()
 
     init {
         val streamData = jsonObject.getAsJsonObject("streamingData")
@@ -79,6 +82,19 @@ class PlayerResponseImpl(json: String) : PlayerResponse {
                         value.asJsonPrimitive.isString -> _videoDetails[key] = value.asString
                         value.asJsonPrimitive.isNumber -> _videoDetails[key] = value.asNumber.toDouble().toString()
                         value.asJsonPrimitive.isBoolean -> _videoDetails[key] = value.asBoolean.toString()
+                    }
+                }
+            }
+        }
+
+        val playabilityStatusData = jsonObject.getAsJsonObject("playabilityStatus")
+        playabilityStatusData.keySet().forEach { key ->
+            jsonObject[key]?.let { value ->
+                if (value.isJsonPrimitive && value.asJsonPrimitive.isString) {
+                    when {
+                        value.asJsonPrimitive.isString -> _playabilityStatus[key] = value.asString
+                        value.asJsonPrimitive.isNumber -> _playabilityStatus[key] = value.asNumber.toDouble().toString()
+                        value.asJsonPrimitive.isBoolean -> _playabilityStatus[key] = value.asBoolean.toString()
                     }
                 }
             }

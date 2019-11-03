@@ -27,6 +27,7 @@ interface PlayerResponse {
 
     val streamingData: StreamingData?
     val videoDetails: HashMap<String, String>
+    val playabilityStatus: HashMap<String, String>
 }
 
 data class StreamingData(
