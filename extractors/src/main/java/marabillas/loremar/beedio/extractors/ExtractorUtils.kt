@@ -365,7 +365,71 @@ object ExtractorUtils {
     }
 
     fun dateFormats(dayFirst: Boolean = true) = if (dayFirst) DATE_FORMATS_DAY_FIRST else DATE_FORMATS_MONTH_FIRST
+
+    fun parseDuration(s: Any?): Float? {
+        if (s !is String)
+            return null
+
+        val mS = s.trim()
+
+        var m = """(?:(?:(?:([0-9]+):)?([0-9]+):)?([0-9]+):)?([0-9]+)(\.[0-9]+)?Z?${'$'}"""
+                .toRegex().find(mS)
+
+        if (m != null && mS.startsWith(m.value)) {
+            val (_, days, hours, mins, secs, ms) = m.groupValues
+            return totalDuration(days, hours, mins, secs, ms)
+        } else {
+            m = """(?ix)(?:P?
+                (?:
+                    [0-9]+\s*y(?:ears?)?\s*
+                )?
+                (?:
+                    [0-9]+\s*m(?:onths?)?\s*
+                )?
+                (?:
+                    [0-9]+\s*w(?:eeks?)?\s*
+                )?
+                (?:
+                    ([0-9]+)\s*d(?:ays?)?\s*
+                )?
+                T)?
+                (?:
+                    ([0-9]+)\s*h(?:ours?)?\s*
+                )?
+                (?:
+                    ([0-9]+)\s*m(?:in(?:ute)?s?)?\s*
+                )?
+                (?:
+                    ([0-9]+)(\.[0-9]+)?\s*s(?:ec(?:ond)?s?)?\s*
+                )?Z?${'$'}""".toRegex().find(mS)
+
+            return if (m != null && mS.startsWith(m.value)) {
+                val (_, days, hours, mins, secs, ms) = m.groupValues
+                totalDuration(days, hours, mins, secs, ms)
+            } else {
+                m = """(?i)(?:([0-9.]+)\s*(?:hours?)|([0-9.]+)\s*(?:mins?\.?|minutes?)\s*)Z?${'$'}"""
+                        .toRegex().find(mS)
+                if (m != null && mS.startsWith(m.value)) {
+                    val (_, hours, mins) = m.groupValues
+                    totalDuration("", hours, mins, "", "")
+                } else
+                    null
+            }
+        }
+    }
+
+    private fun totalDuration(days: String, hours: String, mins: String, secs: String, ms: String): Float {
+        var duration = 0f
+        if (secs.isNotBlank()) duration += secs.toFloat()
+        if (mins.isNotBlank()) duration += (mins.toFloat() * 60)
+        if (hours.isNotBlank()) duration += (hours.toFloat() * 60 * 60)
+        if (days.isNotBlank()) duration += (days.toFloat() * 24 * 60 * 60)
+        if (ms.isNotBlank()) duration += ms.toFloat()
+        return duration
+    }
 }
+
+private operator fun List<String>.component6() = this[5]
 
 val DATE_FORMATS = listOf(
         "dd MMMM yyyy",

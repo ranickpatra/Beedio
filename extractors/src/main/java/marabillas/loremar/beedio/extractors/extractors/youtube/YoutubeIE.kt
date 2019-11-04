@@ -24,6 +24,7 @@ import com.google.gson.JsonParser
 import com.google.gson.JsonSyntaxException
 import marabillas.loremar.beedio.extractors.ExtractorException
 import marabillas.loremar.beedio.extractors.ExtractorUtils
+import marabillas.loremar.beedio.extractors.ExtractorUtils.parseDuration
 import marabillas.loremar.beedio.extractors.JSInterpreter
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -821,6 +822,82 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                     }
                 }
             }
+
+            val mEpisode = """<div[^>]+id="watch7-headline"[^>]*>\s*<span[^>]*>.*?>([^<]+)</a></b>\s*S(\d+)\s*•\s*E(\d+)</span>"""
+                    .toRegex().find(videoWebPage.toString())
+            val series: String?
+            val seasonNumber: Int?
+            val episodeNumber: Int?
+            if (mEpisode != null) {
+                series = ExtractorUtils.unescapeHtml(mEpisode.groups[1]?.value.toString())
+                seasonNumber = mEpisode.groups[2]?.value?.toInt()
+                episodeNumber = mEpisode.groups[3]?.value?.toInt()
+            } else {
+                series = null
+                seasonNumber = null
+                episodeNumber = null
+            }
+
+            val mCatContainer = """(?s)<h4[^>]*>\s*Category\s*</h4>\s*<ul[^>]*>(.*?)</ul>""".toRegex()
+                    .find(videoWebPage.toString())
+            val videoCategories: MutableList<String>?
+            if (mCatContainer != null) {
+                htmlSearchRegex("""(?s)<a[^<]+>(.*?)</a>""".toRegex(), mCatContainer.value)?.let { category ->
+                    videoCategories = mutableListOf(category)
+                }
+            } else
+                videoCategories = null
+
+            val videoTags = mutableListOf<String>().apply {
+                for (m in metaRegex("og:video:tag").findAll(videoWebPage.toString())) {
+                    val content = ExtractorUtils.unescapeHtml(m.groups.last()?.value.toString())
+                }
+            }
+
+            val extractCount: (countName: String) -> Int? = {
+                """-${ExtractorUtils.escape(it)}-button[^>]+><span[^>]+class="yt-uix-button-content"[^>]*>([\d,]+)</span>"""
+                        .toRegex().find(videoWebPage.toString())?.value?.toInt()
+            }
+
+            val likeCount = extractCount("like")
+            val dislikeCount = extractCount("dislike")
+
+            if (viewCount == null)
+                viewCount = """<[^>]+class=["']watch-view-count[^>]+>\s*([\d,\s]+)""".toRegex()
+                        .find(videoWebPage.toString())?.value?.toInt()
+
+            val averageRating = videoDetails?.get("averageRating")?.toFloat()
+                    ?: vInfo["avg_rating"]?.get(0)?.toFloat()
+
+            // subtitles
+            /* TODO video_subtitles = self.extract_subtitles(video_id, video_webpage)
+                automatic_captions = self.extract_automatic_captions(video_id, video_webpage)*/
+
+            val videoDuration = vInfo["length_seconds"]?.get(0)?.toFloat()
+                    ?: videoDetails?.get("lengthSeconds")?.toFloat()
+                    ?: parseDuration(htmlSearchMeta(
+                            "duration", videoWebPage.toString(), "video duration"))
+
+            // annotations
+            /* TODO video_annotations = None
+                if self._downloader.params.get('writeannotations', False):
+                    xsrf_token = self._search_regex(
+                        r'([\'"])XSRF_TOKEN\1\s*:\s*([\'"])(?P<xsrf_token>[A-Za-z0-9+/=]+)\2',
+                        video_webpage, 'xsrf token', group='xsrf_token', fatal=False)
+                    invideo_url = try_get(
+                        player_response, lambda x: x['annotations'][0]['playerAnnotationsUrlsRenderer']['invideoUrl'], compat_str)
+                    if xsrf_token and invideo_url:
+                        xsrf_field_name = self._search_regex(
+                            r'([\'"])XSRF_FIELD_NAME\1\s*:\s*([\'"])(?P<xsrf_field_name>\w+)\2',
+                            video_webpage, 'xsrf field name',
+                            group='xsrf_field_name', default='session_token')
+                        video_annotations = self._download_webpage(
+                            self._proto_relative_url(invideo_url),
+                            video_id, note='Downloading annotations',
+                            errnote='Unable to download video annotations', fatal=False,
+                            data=urlencode_postdata({xsrf_field_name: xsrf_token}))*/
+
+            val chapters = videoDuration?.let { extractChapters(descriptionOriginal, it) }
         }
 
         TODO()
@@ -926,5 +1003,36 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
         val jsi = JSInterpreter(jscode)
         val initialFunction = funcname?.let { jsi.extractFunction(it) }
         return { s: Any -> initialFunction?.let { f -> f(listOf(s)) } }
+    }
+
+    fun extractChapters(description: String?, duration: Float): List<HashMap<String, Any>>? {
+        if (description.isNullOrBlank())
+            return null
+        val chapterLines = """(?:^|<br\s*/>)([^<]*<a[^>]+onclick=["']yt\.www\.watch\.player\.seekTo[^>]+>(\d{1,2}:\d{1,2}(?::\d{1,2})?)</a>[^>]*)(?=${'$'}|<br\s*/>)"""
+                .toRegex().findAll(description)
+        if (chapterLines.none())
+            return null
+        val chapters = mutableListOf<HashMap<String, Any>>()
+        for (nextNum in 1..chapterLines.count()) {
+            val matchResult = chapterLines.elementAt(nextNum - 1)
+            val (_, chapterLine, timePoint) = matchResult.groupValues
+            val startTime = parseDuration(timePoint) ?: continue
+            if (startTime > duration) break
+            var endTime = (if (nextNum == chapterLines.count()) duration
+            else parseDuration(chapterLines.elementAt(nextNum).groups[2]))
+                    ?: continue
+            if (endTime > duration)
+                endTime = duration
+            if (startTime > endTime)
+                break
+            val chapterTitle = chapterLine.replace("""<a[^>]+>[^<]+</a>""".toRegex(), "")
+                    .replace("""[ \t-]""".toRegex(), "").replace("""\s+""".toRegex(), " ")
+            chapters.add(hashMapOf(
+                    "start_time" to startTime,
+                    "end_time" to endTime,
+                    "title" to chapterTitle
+            ))
+        }
+        return chapters
     }
 }
