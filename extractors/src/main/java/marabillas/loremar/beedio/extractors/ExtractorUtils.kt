@@ -44,7 +44,7 @@ object ExtractorUtils {
         return try {
             val client = OkHttpClient()
             val request = Request.Builder().url(url).build()
-            client.newCall(request).execute().body.toString()
+            client.newCall(request).execute().body?.string()
         } catch (e: IOException) {
             null
         }
@@ -217,7 +217,7 @@ object ExtractorUtils {
             if (it.value == "\u0000")
                 "\\000"
             else
-                "\\$it"
+                "\\${it.value}"
         }
     }
 
@@ -341,7 +341,7 @@ object ExtractorUtils {
                 val srcFormat = SimpleDateFormat(expression, Locale.US)
                 val targetFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
                 uploadDate = targetFormat.format(srcFormat.parse(mDateStr))
-            } catch (e: NullPointerException) {
+            } catch (e: Exception) {
             }
         }
 
@@ -426,6 +426,24 @@ object ExtractorUtils {
         if (days.isNotBlank()) duration += (days.toFloat() * 24 * 60 * 60)
         if (ms.isNotBlank()) duration += ms.toFloat()
         return duration
+    }
+
+    fun stringToInt(s: String?): Int? {
+        if (s.isNullOrBlank())
+            return null
+        return s.replace("""[,.+]""".toRegex(), "").toIntOrNull()
+    }
+
+    fun urlOrNull(url: String?): String? {
+        if (url.isNullOrBlank())
+            return null
+        return removeQuotes(url.trim())?.let {
+            val m = """^(?:[a-zA-Z][\da-zA-Z.+-]*:)?//""".toRegex().find(it)
+            if (m != null && it.startsWith(m.value))
+                it
+            else
+                null
+        }
     }
 }
 

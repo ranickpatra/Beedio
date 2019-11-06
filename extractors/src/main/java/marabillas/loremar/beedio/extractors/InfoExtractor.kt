@@ -29,9 +29,9 @@ abstract class InfoExtractor {
         // TODO
     }
 
-    fun extract(url: String) {
+    fun extract(url: String): Map<String, Any?> {
         initialize()
-        realExtract(url)
+        return realExtract(url)
     }
 
     protected abstract fun realExtract(url: String): Map<String, Any?>
@@ -50,6 +50,24 @@ abstract class InfoExtractor {
         }
     }
 
+    /**
+     * Regex search a string and return the first matching group value
+     */
+    fun searchRegex(pattern: Regex, string: String, group: Int? = null): String? {
+        val mobj = pattern.find(string)
+        if (mobj != null) {
+            if (group == null) {
+                for (i in 1..mobj.groupValues.lastIndex) {
+                    if (mobj.groupValues[i].isNotEmpty())
+                        return mobj.groupValues[i]
+                }
+            } else {
+                return mobj.groupValues[group]
+            }
+        }
+        return null
+    }
+
     fun htmlSearchMeta(name: String, html: String, displayName: String? = null, fatal: Boolean = false)
             : String? {
         return htmlSearchMeta(listOf(name), html, displayName, fatal)
@@ -64,8 +82,8 @@ abstract class InfoExtractor {
     }
 
     fun htmlSearchRegex(pattern: Regex, s: String): String? {
-        return pattern.find(s)?.value?.let {
-            ExtractorUtils.cleanHtml(it)
+        return searchRegex(pattern, s)?.let {
+            ExtractorUtils.cleanHtml(it).trim()
         }
     }
 

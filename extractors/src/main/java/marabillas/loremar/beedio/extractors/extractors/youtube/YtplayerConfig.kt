@@ -26,7 +26,8 @@ interface YtplayerConfig {
 
     val args: Args?
     val sts: String?
-    val playerResponseJson: String?
+
+    fun getArgsItems(): Map<String, List<String>>
 }
 
 data class Args(
@@ -35,5 +36,6 @@ data class Args(
         val dashMpd: List<String> = listOf(),
         val ypcVid: String? = null,
         val livestream: String? = null,
-        val livePlayback: Int? = null
+        val livePlayback: Int? = null,
+        val playerResponse: String? = null
 )

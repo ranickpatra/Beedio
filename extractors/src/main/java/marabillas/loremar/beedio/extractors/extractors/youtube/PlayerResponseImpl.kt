@@ -40,42 +40,42 @@ class PlayerResponseImpl(json: String) : PlayerResponse {
         val streamData = jsonObject.getAsJsonObject("streamingData")
         val dashMUrl = streamData.get("dashManifestUrl")
         val hlsMUrl = streamData.get("hlsManifestUrl")
-        val formats = streamData.get("formats").asJsonArray
-        val adaptiveFormats = streamData.get("adaptiveFormats").asJsonArray
+        val formats = streamData.get("formats")?.asJsonArray
+        val adaptiveFormats = streamData.get("adaptiveFormats")?.asJsonArray
         val lInfos = streamData.get("licenseInfos")
 
 
-        val dashMUrlList = ExtractorUtils.jsonElementToStringList(dashMUrl)
-        val hlsMUrlList = ExtractorUtils.jsonElementToStringList(hlsMUrl)
-        val licenseInfosList = ExtractorUtils.jsonElementToStringList(lInfos)
+        val dashMUrlList = dashMUrl?.let { ExtractorUtils.jsonElementToStringList(it) }
+        val hlsMUrlList = hlsMUrl?.let { ExtractorUtils.jsonElementToStringList(it) }
+        val licenseInfosList = lInfos?.let { ExtractorUtils.jsonElementToStringList(it) }
 
-        val formatsList = formats.let { formatsArray ->
+        val formatsList = formats?.let { formatsArray ->
             mutableListOf<Map<String, String>>().also { list ->
                 formatsArray.forEach { format ->
                     list.add(
                             format.asJsonObject.keySet().associateBy(
                                     { it },
-                                    { formats.asJsonObject.get(it).asString }
+                                    { format.asJsonObject.get(it).toString() }
                             )
                     )
                 }
             }
         }
 
-        val adaptiveFormatsList = adaptiveFormats.let { formatsArray ->
+        val adaptiveFormatsList = adaptiveFormats?.let { formatsArray ->
             mutableListOf<Map<String, String>>().also { list ->
                 formatsArray.forEach { format ->
                     list.add(
                             format.asJsonObject.keySet().associateBy(
                                     { it },
-                                    { formats.asJsonObject.get(it).asString }
+                                    { format.asJsonObject.get(it).toString() }
                             )
                     )
                 }
             }
         }
 
-        _streamingData = StreamingData(dashMUrlList, hlsMUrlList, formatsList.toList(), adaptiveFormatsList, licenseInfosList)
+        _streamingData = StreamingData(dashMUrlList, hlsMUrlList, formatsList?.toList(), adaptiveFormatsList, licenseInfosList)
 
         val detailsData = jsonObject.getAsJsonObject("videoDetails")
         detailsData.keySet().forEach { key ->

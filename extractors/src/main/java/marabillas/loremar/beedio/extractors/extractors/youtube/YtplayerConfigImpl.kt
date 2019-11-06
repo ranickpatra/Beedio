@@ -28,33 +28,39 @@ class YtplayerConfigImpl(json: String) : YtplayerConfig {
         get() = _args
     override val sts: String?
         get() = _sts
-    override val playerResponseJson: String?
-        get() = _playerResponseJson
 
     private val jsonObject = JsonParser.parseString(json).asJsonObject
     private var _args: Args? = null
     private var _sts: String? = null
-    private var _playerResponseJson: String? = null
 
     init {
-        _sts = jsonObject.getAsJsonPrimitive("sts").asString
+        _sts = jsonObject.getAsJsonPrimitive("sts")?.asString
 
         val argsObj = jsonObject.getAsJsonObject("args")
         val urlEncodedFmtStreamMap = argsObj.get("url_encoded_fmt_stream_map")
         val hlsvp = argsObj.get("hslvp")
         val dashMpd = argsObj.get("dashmpd")
-        val ypcVid = argsObj.get("ypc_vid").asString
-        val livestream = argsObj.get("livestream").asString
-        val livePlayback = argsObj.get("live_playback").asInt
+        val ypcVid = argsObj.get("ypc_vid")?.asString
+        val livestream = argsObj.get("livestream")?.asString
+        val livePlayback = argsObj.get("live_playback")?.asInt
+        val playerResponse = argsObj.get("player_response")?.asString
         _args = Args(
                 urlEncodedFmtStreamMap = jsonElementToStringList(urlEncodedFmtStreamMap),
-                hlsvp = jsonElementToStringList(hlsvp),
-                dashMpd = jsonElementToStringList(dashMpd),
+                hlsvp = hlsvp?.let { jsonElementToStringList(it) } ?: listOf(),
+                dashMpd = dashMpd?.let { jsonElementToStringList(it) } ?: listOf(),
                 ypcVid = ypcVid,
                 livestream = livestream,
-                livePlayback = livePlayback
+                livePlayback = livePlayback,
+                playerResponse = playerResponse
         )
+    }
 
-        _playerResponseJson = jsonObject.getAsJsonObject("player_response").toString()
+    override fun getArgsItems(): Map<String, List<String>> {
+        return mutableMapOf<String, List<String>>().apply {
+            val argsObj = jsonObject.getAsJsonObject("args")
+            for (key in argsObj.keySet()) {
+                put(key, listOf(argsObj[key].asString))
+            }
+        }
     }
 }

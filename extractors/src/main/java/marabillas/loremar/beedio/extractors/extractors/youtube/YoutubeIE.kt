@@ -19,7 +19,6 @@
 
 package marabillas.loremar.beedio.extractors.extractors.youtube
 
-import android.util.Log
 import com.google.gson.JsonParser
 import com.google.gson.JsonSyntaxException
 import marabillas.loremar.beedio.extractors.ExtractorException
@@ -234,7 +233,7 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                 }
 
         val dashMpds = mutableListOf<String>()
-        val addDashMpd = { videoInfo: HashMap<String, List<String>> ->
+        val addDashMpd = { videoInfo: Map<String, List<String>> ->
             val dashMpd = videoInfo["dashmpd"]
             if (dashMpd != null && !dashMpds.contains(dashMpd[0]))
                 dashMpds.add(dashMpd[0])
@@ -250,17 +249,17 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
         var isLive: Boolean? = null
         var viewCount: Int? = null
 
-        val extractViewCount: (HashMap<String, List<String>>) -> Int? = { vInfo ->
+        val extractViewCount: (Map<String, List<String>>) -> Int? = { vInfo ->
             vInfo["viewCount"]?.get(0) as Int?
         }
 
-        val extractToken: (HashMap<String, List<String>>) -> Any? = { vInfo ->
+        val extractToken: (Map<String, List<String>>) -> Any? = { vInfo ->
             vInfo["account_playback_token"] ?: vInfo["accountPlaybackToken"] ?: vInfo["token"]
         }
 
-        val extractPlayerResponse: (String, String) -> PlayerResponse? = { playerResponseJson, vId ->
+        val extractPlayerResponse: (String?, String?) -> PlayerResponse? = { playerResponseJson, vId ->
             try {
-                PlayerResponse.from(playerResponseJson)
+                playerResponseJson?.let { PlayerResponse.from(it) }
             } catch (e: JsonSyntaxException) {
                 // TODO()
                 null
@@ -270,7 +269,7 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
         var playerResponse: PlayerResponse? = null
 
         // Get video info
-        var videoInfo: HashMap<String, List<String>>? = null
+        var videoInfo: Map<String, List<String>>? = null
         var embedWebpage: String? = null
         var ageGate: Boolean
         if (videoWebPage?.let { """player-age-gate-content">""".toRegex().find(it) } != null) {
@@ -284,7 +283,7 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                             "video_id" to videoId,
                             "eurl" to "https://youtube.googleapis.com/v/$videoId",
                             "sts" to (embedWebpage?.let {
-                                """"sts"\s*:\s*(\d+)""".toRegex().find(it)?.groups?.get(0)?.value
+                                searchRegex(""""sts"\s*:\s*(\d+)""".toRegex(), it)
                             } ?: "")
                     )
             )
@@ -303,10 +302,7 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             if (ytplayerConfig != null) {
                 ytplayerConfig.args?.let { args ->
                     if (args.urlEncodedFmtStreamMap.isNotEmpty() || args.hlsvp.isNotEmpty()) {
-                        videoInfo = hashMapOf(
-                                "url_encoded_fmt_stream_map" to args.urlEncodedFmtStreamMap,
-                                "hslvp" to args.hlsvp
-                        ).apply(addDashMpd)
+                        videoInfo = ytplayerConfig.getArgsItems().also { addDashMpd(it) }
                     }
                     /*# Rental video is not rented but preview is available (e.g.
                     # https://www.youtube.com/watch?v=yYr8q0y5Jfg,
@@ -318,10 +314,10 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                         )
                     if (args.livestream == "1" || args.livePlayback == 1)
                         isLive = true
+                    if (playerResponse == null)
+                        playerResponse = args.playerResponse?.let { extractPlayerResponse(it, videoId) }
                 }
                 sts = ytplayerConfig.sts
-                if (playerResponse == null)
-                    playerResponse = ytplayerConfig.playerResponseJson?.let { extractPlayerResponse(it, videoId) }
             }
             if (videoInfo.isNullOrEmpty()) {// TODO self._downloader.params.get('youtube_include_dash_manifest', True)
                 playerResponse?.let { addDashMpdPr(it) }
@@ -455,11 +451,11 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
         }
 
         val extractFileSize: (String) -> String? = { mediaUrl ->
-            """\bclen[=/](\d+)""".toRegex().find(mediaUrl)?.value
+            searchRegex("""\bclen[=/](\d+)""".toRegex(), mediaUrl)
         }
 
         val streamingFormats = playerResponse?.streamingData?.run {
-            formats.toMutableList().apply { addAll(adaptiveFormats) }
+            formats?.toMutableList()?.apply { adaptiveFormats?.let { addAll(it) } }
         } ?: listOf<Map<String, String>>()
 
         var formats: MutableList<HashMap<String, Any?>> = mutableListOf()
@@ -522,13 +518,13 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                 for (fmt in streamingFormats) {
                     if (fmt["drm_families"] != null)
                         continue
-                    var urlz = fmt["url"]
+                    var urlz = ExtractorUtils.urlOrNull(fmt["url"])
                     var cipher: String? = null
                     val urlData: HashMap<String, List<String>>
                     if (urlz == null) {
                         cipher = fmt["cipher"] ?: continue
                         urlData = ExtractorUtils.parseQueryString(cipher)
-                        urlz = urlData["url"]?.get(0)
+                        urlz = ExtractorUtils.urlOrNull(urlData["url"]?.get(0))
                         if (urlz == null)
                             continue
                         else
@@ -552,17 +548,23 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                                 embedWebpage
                             else
                                 videoWebPage
-                            var jsplayerUrlJson = webPage?.let { ASSETS_RE.find(it) }?.value
+                            var jsplayerUrlJson = webPage?.let { searchRegex(ASSETS_RE, it) }
                             if (jsplayerUrlJson == null && !ageGate) {
                                 // We need the embed website after all
                                 if (embedWebpage == null) {
                                     val embedUrl = "$proto://www.youtube.com/embed/$videoId"
                                     embedWebpage = ExtractorUtils.contentOf(embedUrl)
                                 }
-                                jsplayerUrlJson = embedWebpage?.let { ASSETS_RE.find(it) }?.value
+                                jsplayerUrlJson = embedWebpage?.let { searchRegex(ASSETS_RE, it) }
                             }
 
                             playerUrl = JsonParser.parseString(jsplayerUrlJson).asString
+                            if (playerUrl.isNullOrBlank()) {
+                                val playerUrlJson = searchRegex(
+                                        """ytplayer\.config.*?"url"\s*:\s*("[^"]+")""".toRegex(),
+                                        videoWebPage.toString())
+                                playerUrl = JsonParser.parseString(playerUrlJson).asString
+                            }
                         }
 
                         if (urlData.contains("sig"))
@@ -666,7 +668,7 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                     for (aFormat in m3u8Formats) {
                         val aFormatUrl = aFormat["url"]
                         if (aFormatUrl is String) {
-                            val itag = """/itag/(\d+)/""".toRegex().find(aFormatUrl)?.value
+                            val itag = searchRegex("""/itag/(\d+)/""".toRegex(), aFormatUrl)
                             if (_formats.contains(itag)) {
                                 _formats[itag]?.also { dct ->
                                     for ((k, v) in aFormat)
@@ -705,8 +707,8 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             var videoUploader = vInfo["author"]?.get(0) ?: videoDetails?.get("author")
             if (!videoUploader.isNullOrBlank())
                 videoUploader = URLDecoder.decode(videoUploader, "UTF-8")
-            else
-                Log.w(javaClass.name, "unable to extract uploader name")
+            /* TODO else
+                Log.w(javaClass.name, "unable to extract uploader name")*/
 
             // uploader id
             var videoUploaderId: String? = null
@@ -716,13 +718,14 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             if (mobj != null) {
                 videoUploaderId = mobj.groups[2]?.value
                 videoUploaderUrl = mobj.groups[1]?.value
-            } else
-                Log.w(javaClass.name, "unable to extract uploader nickname")
+            } else {
+            }
+            // TODO Log.w(javaClass.name, "unable to extract uploader nickname")
 
             val channelId = videoDetails?.get("channelId")
                     ?: htmlSearchMeta("channelId", videoWebPage.toString(), "channel id")
-                    ?: """data-channel-external-id=(["'])((?:(?!\1).)+)\1""".toRegex()
-                            .find(videoWebPage.toString())?.groups?.get(2)?.value
+                    ?: searchRegex("""data-channel-external-id=(["'])((?:(?!\1).)+)\1""".toRegex(),
+                            videoWebPage.toString(), 2)
             val channelUrl = "http://www.youtube.com/channel/$channelId"
 
             /*# thumbnail image
@@ -732,7 +735,7 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             val videoThumbnail = if (mThumb != null)
                 mThumb.groups[1]?.value
             else if (!vInfo.contains("thumbnail_url")) {
-                Log.w(javaClass.name, "unable to extract video thumbnail")
+                // TODO Log.w(javaClass.name, "unable to extract video thumbnail")
                 null
             } else {
                 // don't panic if we can't find it
@@ -744,9 +747,9 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             // upload date
             var uploadDate = htmlSearchMeta("datePublished", videoWebPage.toString(), "updload date")
             if (uploadDate.isNullOrBlank())
-                uploadDate = """(?s)id="eow-date.*?>(.*?)</span>""".toRegex().find(videoWebPage.toString())?.value
-                        ?: """(?:id="watch-uploader-info".*?>.*?|["']simpleText["']\s*:\s*["'])(?:Published|Uploaded|Streamed live|Started) on (.+?)[<"\']"""
-                                .toRegex().find(videoWebPage.toString())?.value
+                uploadDate = searchRegex("""(?s)id="eow-date.*?>(.*?)</span>""".toRegex(), videoWebPage.toString())
+                        ?: searchRegex("""(?:id="watch-uploader-info".*?>.*?|["']simpleText["']\s*:\s*["'])(?:Published|Uploaded|Streamed live|Started) on (.+?)[<"\']"""
+                                .toRegex(), videoWebPage.toString())
             uploadDate = ExtractorUtils.unifiedStrDate(uploadDate)
 
             val videoLicense = htmlSearchRegex("""<h4[^>]+class="title"[^>]*>\s*License\s*</h4>\s*<ul[^>]*>\s*<li>(.+?)</li"""
@@ -841,10 +844,10 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                 episodeNumber = null
             }
 
-            val mCatContainer = """(?s)<h4[^>]*>\s*Category\s*</h4>\s*<ul[^>]*>(.*?)</ul>""".toRegex()
-                    .find(videoWebPage.toString())
+            val mCatContainer = searchRegex("""(?s)<h4[^>]*>\s*Category\s*</h4>\s*<ul[^>]*>(.*?)</ul>""".toRegex(),
+                    videoWebPage.toString())
             val videoCategories: MutableList<String>? = if (mCatContainer != null) {
-                htmlSearchRegex("""(?s)<a[^<]+>(.*?)</a>""".toRegex(), mCatContainer.value)?.let { category ->
+                htmlSearchRegex("""(?s)<a[^<]+>(.*?)</a>""".toRegex(), mCatContainer)?.let { category ->
                     mutableListOf(category)
                 }
             } else
@@ -857,16 +860,18 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             }
 
             val extractCount: (countName: String) -> Int? = {
-                """-${ExtractorUtils.escape(it)}-button[^>]+><span[^>]+class="yt-uix-button-content"[^>]*>([\d,]+)</span>"""
-                        .toRegex().find(videoWebPage.toString())?.value?.toInt()
+                ExtractorUtils.stringToInt(
+                        searchRegex("""-${ExtractorUtils.escape(it)}-button[^>]+><span[^>]+class="yt-uix-button-content"[^>]*>([\d,]+)</span>"""
+                                .toRegex(), videoWebPage.toString())
+                )
             }
 
             val likeCount = extractCount("like")
             val dislikeCount = extractCount("dislike")
 
             if (viewCount == null)
-                viewCount = """<[^>]+class=["']watch-view-count[^>]+>\s*([\d,\s]+)""".toRegex()
-                        .find(videoWebPage.toString())?.value?.toInt()
+                viewCount = ExtractorUtils.stringToInt(searchRegex("""<[^>]+class=["']watch-view-count[^>]+>\s*([\d,\s]+)""".toRegex(),
+                        videoWebPage.toString()))
 
             val averageRating = videoDetails?.get("averageRating")?.toFloat()
                     ?: vInfo["avg_rating"]?.get(0)?.toFloat()
@@ -923,8 +928,9 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                                     reason = unavailableMessage
                             }
                             throw ExtractorException("YouTube said: $reason")
-                        } else
-                            throw ExtractorException("'token' parameter not in video info for unknown reason")
+                        } else {
+                        }
+                // TODO throw ExtractorException("'token' parameter not in video info for unknown reason")
             }
 
             if (formats.isEmpty() && (vInfo["license_info"] != null) || !playerResponse?.streamingData?.licenseInfos.isNullOrEmpty())
@@ -952,7 +958,7 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                     "age_limit" to (if (ageGate) 18 else 0),
                     // "annotations" to videoAnnotations,
                     "chapters" to chapters,
-                    "webpage_url" to "$://www.youtube.com/watch?v=$videoId",
+                    "webpage_url" to "$proto://www.youtube.com/watch?v=$videoId",
                     "view_count" to viewCount,
                     "like_count" to likeCount,
                     "dislike_count" to dislikeCount,
@@ -984,10 +990,10 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
     }
 
     fun getYtplayerConfig(videoId: String, webpage: String): YtplayerConfig? {
-        val config = ";ytplayer\\.config\\s*=\\s*(\\{.+?});ytplayer".toRegex().find(webpage)
-                ?: ";ytplayer\\.config\\s*=\\s*(\\{.+?});".toRegex().find(webpage)
+        val config = searchRegex(";ytplayer\\.config\\s*=\\s*(\\{.+?});ytplayer".toRegex(), webpage)
+                ?: searchRegex(";ytplayer\\.config\\s*=\\s*(\\{.+?});".toRegex(), webpage)
         return if (config != null)
-            YtplayerConfig.from(ExtractorUtils.uppercaseEscape(config.value))
+            YtplayerConfig.from(ExtractorUtils.uppercaseEscape(config))
         else
             null
     }
@@ -1074,9 +1080,9 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
         /*TODO Obsolete patterns
         *  .................*/
 
-        val funcname = p1.find(jscode)?.groups?.last()?.value
-                ?: p2.find(jscode)?.groups?.last()?.value
-                ?: p3.find(jscode)?.groups?.get(1)?.value
+        val funcname = searchRegex(p1, jscode, 1)
+                ?: searchRegex(p2, jscode, 1)
+                ?: searchRegex(p3, jscode, 1)
 
         val jsi = JSInterpreter(jscode)
         val initialFunction = funcname?.let { jsi.extractFunction(it) }
