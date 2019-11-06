@@ -34,7 +34,7 @@ abstract class InfoExtractor {
         realExtract(url)
     }
 
-    protected abstract fun realExtract(url: String): HashMap<String, List<String>>
+    protected abstract fun realExtract(url: String): Map<String, Any?>
 
     fun urlResult(url: String, ie: String? = null, videoId: String? = null, videoTitle: String? = null)
             : HashMap<String, List<String>> {

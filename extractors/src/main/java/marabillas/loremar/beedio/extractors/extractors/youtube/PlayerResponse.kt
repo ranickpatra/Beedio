@@ -34,5 +34,6 @@ data class StreamingData(
         val dashManifestUrl: List<String>,
         val hlsManifestUrl: List<String>,
         val formats: List<Map<String, String>>,
-        val adaptiveFormats: List<Map<String, String>>
+        val adaptiveFormats: List<Map<String, String>>,
+        val licenseInfos: List<String>
 )

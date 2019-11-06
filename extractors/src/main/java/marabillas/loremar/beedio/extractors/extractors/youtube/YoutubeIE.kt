@@ -197,7 +197,7 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
             "397" to hashMapOf<String, Any>("acodec" to "none", "vcodec" to "av01.0.05M.08")
     )
 
-    override fun realExtract(url: String): HashMap<String, List<String>> {
+    override fun realExtract(url: String): Map<String, Any?> {
         var urlx = ExtractorUtils.unsmuggleUrl(url)
 
         val proto = "http" // 'http' if self._downloader.params.get('prefer_insecure', False) else 'https'
@@ -312,7 +312,10 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
                     # https://www.youtube.com/watch?v=yYr8q0y5Jfg,
                     # https://github.com/ytdl-org/youtube-dl/issues/10532)*/
                     if (videoInfo.isNullOrEmpty() && args.ypcVid != null)
-                        return urlResult(args.ypcVid, videoId = args.ypcVid)
+                        return urlResult(args.ypcVid, videoId = args.ypcVid).asSequence().associateBy(
+                                { it.key },
+                                { it.value as Any? }
+                        )
                     if (args.livestream == "1" || args.livePlayback == 1)
                         isLive = true
                 }
@@ -840,13 +843,12 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
 
             val mCatContainer = """(?s)<h4[^>]*>\s*Category\s*</h4>\s*<ul[^>]*>(.*?)</ul>""".toRegex()
                     .find(videoWebPage.toString())
-            val videoCategories: MutableList<String>?
-            if (mCatContainer != null) {
+            val videoCategories: MutableList<String>? = if (mCatContainer != null) {
                 htmlSearchRegex("""(?s)<a[^<]+>(.*?)</a>""".toRegex(), mCatContainer.value)?.let { category ->
-                    videoCategories = mutableListOf(category)
+                    mutableListOf(category)
                 }
             } else
-                videoCategories = null
+                null
 
             val videoTags = mutableListOf<String>().apply {
                 for (m in metaRegex("og:video:tag").findAll(videoWebPage.toString())) {
@@ -880,29 +882,105 @@ class YoutubeIE : YoutubeBaseInfoExtractor() {
 
             // annotations
             /* TODO video_annotations = None
-                if self._downloader.params.get('writeannotations', False):
-                    xsrf_token = self._search_regex(
-                        r'([\'"])XSRF_TOKEN\1\s*:\s*([\'"])(?P<xsrf_token>[A-Za-z0-9+/=]+)\2',
-                        video_webpage, 'xsrf token', group='xsrf_token', fatal=False)
-                    invideo_url = try_get(
-                        player_response, lambda x: x['annotations'][0]['playerAnnotationsUrlsRenderer']['invideoUrl'], compat_str)
-                    if xsrf_token and invideo_url:
-                        xsrf_field_name = self._search_regex(
-                            r'([\'"])XSRF_FIELD_NAME\1\s*:\s*([\'"])(?P<xsrf_field_name>\w+)\2',
-                            video_webpage, 'xsrf field name',
-                            group='xsrf_field_name', default='session_token')
-                        video_annotations = self._download_webpage(
-                            self._proto_relative_url(invideo_url),
-                            video_id, note='Downloading annotations',
-                            errnote='Unable to download video annotations', fatal=False,
-                            data=urlencode_postdata({xsrf_field_name: xsrf_token}))*/
+                if self._downloader.params.get('writeannotations', False):*/
 
             val chapters = videoDuration?.let { extractChapters(descriptionOriginal, it) }
+
+            // Look for the DASH manifest
+            /* TODO # Look for the DASH manifest
+                if self._downloader.params.get('youtube_include_dash_manifest', True):*/
+
+            // Check for malformed aspect ratio
+            val stretchedM = """<meta\s+property="og:video:tag".*?content="yt:stretch=([0-9]+):([0-9]+)">"""
+                    .toRegex().find(videoWebPage.toString())
+            if (stretchedM != null) {
+                val w = stretchedM.groups[1]?.value?.toFloat()
+                val h = stretchedM.groups[2]?.value?.toFloat()
+                /*# yt:stretch may hold invalid ratio data (e.g. for Q39EVAstoRM ratio is 17:0).
+                # We will only process correct ratios.*/
+                if (w != null && h != null && w > 0f && h > 0f) {
+                    val ratio = w / h
+                    for (f in formats)
+                        if (f["vcodec"] != null && f["vcodec"] != "none")
+                            f["stretched_ratio"] = ratio
+                }
+            }
+
+            if (formats.isEmpty()) {
+                val token = extractToken(vInfo)
+                        ?: if (vInfo.contains("reason")) {
+                            val reasons = vInfo["reason"]
+                            if (reasons != null && reasons.any {
+                                        it == "The uploader has not made this video" +
+                                                " available in your country."
+                                    }) {
+                                // TODO Raise geo-restricted error.
+                            }
+                            var reason = reasons?.get(0)
+                            if (reason != null && reason.contains("Invalid parameters")) {
+                                val unavailableMessage = extractUnavailableMessage()
+                                if (!unavailableMessage.isNullOrBlank())
+                                    reason = unavailableMessage
+                            }
+                            throw ExtractorException("YouTube said: $reason")
+                        } else
+                            throw ExtractorException("'token' parameter not in video info for unknown reason")
+            }
+
+            if (formats.isEmpty() && (vInfo["license_info"] != null) || !playerResponse?.streamingData?.licenseInfos.isNullOrEmpty())
+                throw ExtractorException("This video is DRM protected.")
+
+            return mapOf(
+                    "id" to videoId,
+                    "uploader" to videoUploader,
+                    "uploader_id" to videoUploaderId,
+                    "uploader_url" to videoUploaderUrl,
+                    "channel_id" to channelId,
+                    "channel_url" to channelUrl,
+                    "upload_date" to uploadDate,
+                    "license" to videoLicense,
+                    "creator" to (videoCreator ?: artist),
+                    "title" to videoTitle,
+                    "alt_title" to videoAltTitle,
+                    "thumbnail" to videoThumbnail,
+                    "description" to videoDescription,
+                    "categories" to videoCategories,
+                    "tags" to videoTags,
+                    // "subtitles" to videoSubtitles,
+                    // "automatic_captions" to automaticCaptions,
+                    "duration" to videoDuration,
+                    "age_limit" to (if (ageGate) 18 else 0),
+                    // "annotations" to videoAnnotations,
+                    "chapters" to chapters,
+                    "webpage_url" to "$://www.youtube.com/watch?v=$videoId",
+                    "view_count" to viewCount,
+                    "like_count" to likeCount,
+                    "dislike_count" to dislikeCount,
+                    "average_rating" to averageRating,
+                    "formats" to formats,
+                    "is_live" to isLive,
+                    // "start_time" to startTime,
+                    // "end_time" to endTime,
+                    "series" to series,
+                    "season_number" to seasonNumber,
+                    "episode_number" to episodeNumber,
+                    "track" to track,
+                    "artist" to artist,
+                    "album" to album,
+                    "release_date" to releaseDate,
+                    "release_year" to releaseYear
+            )
         }
-
-        TODO()
-
-        return hashMapOf()
+                ?: return mapOf(
+                        "id" to videoId,
+                        "title" to videoTitle,
+                        "description" to videoDescription,
+                        "age_limit" to (if (ageGate) 18 else 0),
+                        "webpage_url" to "$proto://www.youtube.com/watch?v=$videoId",
+                        "view_count" to viewCount,
+                        "formats" to formats,
+                        "isLive" to isLive
+                )
     }
 
     fun getYtplayerConfig(videoId: String, webpage: String): YtplayerConfig? {
